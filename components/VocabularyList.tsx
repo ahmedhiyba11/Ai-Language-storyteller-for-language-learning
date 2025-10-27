@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { type Word } from '../types';
 
@@ -8,9 +7,10 @@ interface VocabularyListProps {
 }
 
 export const VocabularyList: React.FC<VocabularyListProps> = ({ vocabulary, onDeleteWord }) => {
+    const listId = "vocab-list-heading";
     return (
-        <div className="bg-slate-800 p-6 rounded-xl shadow-lg h-full">
-            <h3 className="text-2xl font-bold text-indigo-400 mb-4">
+        <div role="region" aria-labelledby={listId} className="bg-slate-800 data-[theme='high-contrast']:bg-black data-[theme='high-contrast']:border data-[theme='high-contrast']:border-white p-6 rounded-xl shadow-lg h-full">
+            <h3 id={listId} className="text-2xl font-bold text-indigo-400 data-[theme='high-contrast']:text-cyan-400 mb-4">
                <i className="fas fa-clipboard-list mr-2"></i> Vocabulary Clipboard
             </h3>
             {vocabulary.length > 0 ? (
@@ -18,12 +18,12 @@ export const VocabularyList: React.FC<VocabularyListProps> = ({ vocabulary, onDe
                     {vocabulary.map((word) => (
                         <li
                             key={word.id}
-                            className="flex items-center justify-between bg-slate-700 p-3 rounded-lg group"
+                            className="flex items-center justify-between bg-slate-700 data-[theme='high-contrast']:bg-gray-900 p-3 rounded-lg group"
                         >
-                            <span className="text-slate-200">{word.text}</span>
+                            <span className="text-slate-200 data-[theme='high-contrast']:text-slate-100">{word.text}</span>
                             <button
                                 onClick={() => onDeleteWord(word.id)}
-                                className="text-slate-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                className="text-slate-500 hover:text-red-500 data-[theme='high-contrast']:text-slate-400 data-[theme='high-contrast']:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
                                 aria-label={`Delete word: ${word.text}`}
                             >
                                 <i className="fas fa-trash-alt"></i>

@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Modality } from '@google/genai';
-import { type Story, type StorySegment, type Language } from '../types';
+import { type Story, type StorySegment, type Language, type StoryOptions } from '../types';
 
 const API_KEY = process.env.API_KEY;
 
@@ -56,8 +56,25 @@ async function textToSpeech(text: string, languageCode: string): Promise<string>
     }
 }
 
-export async function generateStory(language: Language): Promise<Story> {
-    const prompt = `Generate a very simple, short story (about 4 to 6 sentences long) suitable for a beginner language learner. The story should be interesting for any age. Provide the story segmented by sentence. For each sentence, provide the text in ${language.name} and also the English translation.`;
+export async function generateStory(language: Language, options: StoryOptions): Promise<Story> {
+    const { difficulty, tone, vocabFocus } = options;
+
+    const toneMap = {
+        'childrens-story': "a children's story",
+        'daily-conversation': 'a daily conversation',
+        'news-style': 'a news-style report',
+        'fairy-tale': 'a fairy tale'
+    };
+
+    const focusMap = {
+        'general': '',
+        'travel': 'Focus on using vocabulary related to travel.',
+        'food': 'Focus on using vocabulary related to food and dining.',
+        'work': 'Focus on using vocabulary related to the workplace.',
+        'verbs': 'Focus on using a variety of verbs.'
+    };
+
+    const prompt = `Generate a simple, 4-sentence story for a language learner at the ${difficulty} (CEFR) level. The story should be in the style of ${toneMap[tone]}. ${focusMap[vocabFocus]} For each sentence, provide the text in ${language.name} and its English translation.`;
 
     try {
         const response = await ai.models.generateContent({

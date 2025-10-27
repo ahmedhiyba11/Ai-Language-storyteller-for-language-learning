@@ -3,9 +3,12 @@ import { LanguageSelector } from './components/LanguageSelector';
 import { StoryDisplay } from './components/StoryDisplay';
 import { VocabularyList } from './components/VocabularyList';
 import { AudioPlayer } from './components/AudioPlayer';
+import { AccessibilityControls } from './components/AccessibilityControls';
+import { StoryOptions } from './components/StoryOptions';
 import { generateStory } from './services/geminiService';
 import { decodeAudioData } from './utils/audioUtils';
-import { type Story, type Language, type Word } from './types';
+import { getStoryFromCache, saveStoryToCache } from './utils/cache';
+import { type Story, type Language, type Word, type Theme, type StoryOptions as StoryOptionsType } from './types';
 import { LANGUAGES } from './constants';
 
 const App: React.FC = () => {
@@ -19,10 +22,27 @@ const App: React.FC = () => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentSegmentIndex, setCurrentSegmentIndex] = useState<number | null>(null);
 
+    const [theme, setTheme] = useState<Theme>('default');
+    const [isDyslexiaFont, setIsDyslexiaFont] = useState<boolean>(false);
+
+    const [storyOptions, setStoryOptions] = useState<StoryOptionsType>({
+        difficulty: 'A1',
+        tone: 'childrens-story',
+        vocabFocus: 'general',
+    });
+
     const audioContextRef = useRef<AudioContext>();
     const audioBuffersRef = useRef<AudioBuffer[]>([]);
     const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
     const isContinuousPlayRef = useRef(false);
+    
+    useEffect(() => {
+        document.documentElement.setAttribute('data-theme', theme);
+    }, [theme]);
+    
+    useEffect(() => {
+        document.documentElement.classList.toggle('font-dyslexia', isDyslexiaFont);
+    }, [isDyslexiaFont]);
 
     useEffect(() => {
         try {
@@ -72,7 +92,6 @@ const App: React.FC = () => {
 
         const audioBuffer = audioBuffersRef.current[index];
         if (!audioContextRef.current || !audioBuffer) {
-            // Skip if buffer is bad and continue playlist
             if (isContinuousPlayRef.current) {
                 playSegment(index + 1);
             }
@@ -88,7 +107,7 @@ const App: React.FC = () => {
         source.connect(audioContextRef.current.destination);
         
         source.onended = () => {
-            if (sourceNodeRef.current !== source) return; // Stale onended event
+            if (sourceNodeRef.current !== source) return;
             
             if (isContinuousPlayRef.current) {
                 playSegment(index + 1);
@@ -104,6 +123,10 @@ const App: React.FC = () => {
 
     }, [stopPlayback]);
 
+    const createCacheKey = (languageCode: string, options: StoryOptionsType) => {
+        return `${languageCode}-${options.difficulty}-${options.tone}-${options.vocabFocus}`;
+    };
+
     const handleGenerateStory = useCallback(async () => {
         setIsLoading(true);
         setError(null);
@@ -112,7 +135,19 @@ const App: React.FC = () => {
         setSelectedText('');
 
         try {
-            const newStory = await generateStory(selectedLanguage);
+            const cacheKey = createCacheKey(selectedLanguage.code, storyOptions);
+            const cachedStory = await getStoryFromCache(cacheKey);
+            let newStory: Story;
+
+            if (cachedStory) {
+                console.log("Loaded story from cache for:", selectedLanguage.name, storyOptions);
+                newStory = cachedStory;
+            } else {
+                console.log("Generating new story for:", selectedLanguage.name, storyOptions);
+                newStory = await generateStory(selectedLanguage, storyOptions);
+                await saveStoryToCache(cacheKey, newStory);
+            }
+
             setStory(newStory);
 
             if (!audioContextRef.current) {
@@ -130,14 +165,14 @@ const App: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [selectedLanguage, stopPlayback]);
+    }, [selectedLanguage, stopPlayback, storyOptions]);
     
     const handlePlayPauseToggle = () => {
         if (isPlaying) {
             stopPlayback();
         } else {
             isContinuousPlayRef.current = true;
-            playSegment(0);
+            playSegment(currentSegmentIndex !== null ? currentSegmentIndex : 0);
         }
     };
     
@@ -166,17 +201,24 @@ const App: React.FC = () => {
         setVocabulary(prev => prev.filter(word => word.id !== id));
     };
 
+    const handleOptionsChange = (newOptions: StoryOptionsType) => {
+        stopPlayback();
+        setStory(null);
+        setStoryOptions(newOptions);
+    };
+
     return (
-        <div className="min-h-screen bg-slate-900 text-slate-200 font-sans p-4 sm:p-6 lg:p-8">
+        <div className="min-h-screen bg-slate-900 text-slate-200 data-[theme='high-contrast']:bg-black data-[theme='high-contrast']:text-white font-sans p-4 sm:p-6 lg:p-8">
             <div className="max-w-7xl mx-auto">
-                <header className="text-center mb-8">
-                    <h1 className="text-4xl sm:text-5xl font-bold text-teal-400">
+                 <header className="text-center mb-8 relative">
+                    <h1 className="text-4xl sm:text-5xl font-bold text-teal-400 data-[theme='high-contrast']:text-yellow-300">
                         <i className="fas fa-book-open-reader mr-3"></i>AI Language Storyteller
                     </h1>
-                    <p className="text-slate-400 mt-2 text-lg">Your personal AI-powered language learning companion</p>
+                    <p className="text-slate-400 data-[theme='high-contrast']:text-slate-200 mt-2 text-lg">Your personal AI-powered language learning companion</p>
+                    <AccessibilityControls theme={theme} setTheme={setTheme} isDyslexiaFont={isDyslexiaFont} setIsDyslexiaFont={setIsDyslexiaFont} />
                 </header>
 
-                <div className="bg-slate-800 p-6 rounded-xl shadow-2xl mb-8">
+                <div className="bg-slate-800 data-[theme='high-contrast']:bg-black data-[theme='high-contrast']:border data-[theme='high-contrast']:border-white p-6 rounded-xl shadow-2xl mb-8">
                     <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                         <LanguageSelector
                             languages={LANGUAGES}
@@ -191,11 +233,11 @@ const App: React.FC = () => {
                         <button
                             onClick={handleGenerateStory}
                             disabled={isLoading}
-                            className="w-full sm:w-auto bg-teal-500 hover:bg-teal-600 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-transform transform hover:scale-105 duration-200 flex items-center justify-center gap-2"
+                            className="w-full sm:w-auto bg-teal-500 hover:bg-teal-600 disabled:bg-slate-600 disabled:cursor-not-allowed text-white data-[theme='high-contrast']:bg-yellow-400 data-[theme='high-contrast']:hover:bg-yellow-500 data-[theme='high-contrast']:text-black font-bold py-3 px-6 rounded-lg transition-transform transform hover:scale-105 duration-200 flex items-center justify-center gap-2"
                         >
                             {isLoading ? (
                                 <>
-                                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                     </svg>
@@ -208,10 +250,19 @@ const App: React.FC = () => {
                             )}
                         </button>
                     </div>
-                    {error && <p className="text-red-400 text-center mt-4">Error: {error}</p>}
+                    <StoryOptions
+                        options={storyOptions}
+                        onOptionsChange={handleOptionsChange}
+                        disabled={isLoading}
+                    />
+                    <div role="status" aria-live="polite" className="sr-only">
+                        {isLoading && "Generating new story, please wait."}
+                        {error && `An error occurred: ${error}`}
+                    </div>
+                    {error && <p className="text-red-400 data-[theme='high-contrast']:text-red-400 text-center mt-4">Error: {error}</p>}
                 </div>
                 
-                <main className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <main role="main" className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     <div className="lg:col-span-2">
                          <StoryDisplay 
                             segments={story?.segments} 
@@ -234,7 +285,7 @@ const App: React.FC = () => {
                             {selectedText && (
                                 <button
                                     onClick={handleSaveWord}
-                                    className="w-full sm:w-auto bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition duration-200"
+                                    className="w-full sm:w-auto bg-indigo-500 hover:bg-indigo-600 data-[theme='high-contrast']:bg-cyan-500 data-[theme='high-contrast']:hover:bg-cyan-600 data-[theme='high-contrast']:text-black text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition duration-200"
                                 >
                                     <i className="fas fa-plus-circle"></i> Save "{selectedText}"
                                 </button>
@@ -245,6 +296,11 @@ const App: React.FC = () => {
                         <VocabularyList vocabulary={vocabulary} onDeleteWord={handleDeleteWord} />
                     </div>
                 </main>
+
+                <footer className="text-center text-sm text-slate-400 data-[theme='high-contrast']:text-slate-300 py-8 mt-8 border-t border-slate-700 data-[theme='high-contrast']:border-slate-600">
+                    <p className="mb-2">Made with <span role="img" aria-label="love" className="text-red-500">❤️</span> by Ahmed Hiba — for all language learners who dream big but can’t afford subscriptions.</p>
+                    <p>Share your thoughts or feedback: <a href="mailto:AhmedHiyba11@gmail.com" className="text-teal-400 hover:underline data-[theme='high-contrast']:text-yellow-300">AhmedHiyba11@gmail.com</a></p>
+                </footer>
 
             </div>
         </div>
