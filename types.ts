@@ -1,7 +1,8 @@
+// FIX: Define the Language interface and remove circular import.
 export interface Language {
     name: string;
     code: string;
-    ttsCode?: string; // Optional specific code for TTS if different
+    ttsCode?: string;
 }
 
 export interface StorySegment {
@@ -17,6 +18,11 @@ export interface Story {
 export interface Word {
     id: number;
     text: string;
+    language: Language; // The language of the word
+    contextSentence: string;
+    partOfSpeech: string;
+    ipa: string;
+    tags: string[];
 }
 
 export type Theme = 'default' | 'high-contrast';

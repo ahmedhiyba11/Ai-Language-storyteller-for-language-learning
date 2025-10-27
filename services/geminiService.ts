@@ -29,7 +29,17 @@ const storySchema = {
     items: storySegmentSchema,
 };
 
-async function textToSpeech(text: string, languageCode: string): Promise<string> {
+const wordDetailsSchema = {
+    type: Type.OBJECT,
+    properties: {
+        partOfSpeech: { type: Type.STRING, description: "The part of speech of the word (e.g., Noun, Verb, Adjective)." },
+        ipa: { type: Type.STRING, description: "The International Phonetic Alphabet (IPA) transcription of the word." }
+    },
+    required: ["partOfSpeech", "ipa"]
+};
+
+
+export async function textToSpeech(text: string, languageCode: string): Promise<string> {
     try {
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
@@ -55,6 +65,30 @@ async function textToSpeech(text: string, languageCode: string): Promise<string>
         return "";
     }
 }
+
+export async function getWordDetails(word: string, contextSentence: string, languageName: string): Promise<{ partOfSpeech: string; ipa: string; }> {
+    const prompt = `Analyze the word "${word}" from the language "${languageName}". The word appears in the sentence: "${contextSentence}".
+Provide the following details in a JSON object:
+1. "partOfSpeech": The grammatical part of speech (e.g., Noun, Verb, Adjective).
+2. "ipa": The International Phonetic Alphabet (IPA) transcription for the word.`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: wordDetailsSchema,
+            },
+        });
+        const jsonText = response.text.trim();
+        return JSON.parse(jsonText);
+    } catch (error) {
+        console.error("Error getting word details:", error);
+        throw new Error("Could not retrieve details for the selected word.");
+    }
+}
+
 
 export async function generateStory(language: Language, options: StoryOptions): Promise<Story> {
     const { difficulty, tone, vocabFocus } = options;
