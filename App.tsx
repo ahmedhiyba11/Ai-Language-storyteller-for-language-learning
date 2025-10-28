@@ -247,22 +247,19 @@ const App: React.FC = () => {
         setSelectedText('');
 
         try {
+            // Always generate a new story instead of checking cache first.
+            // This ensures the "Generate New Story" button always provides fresh content.
+            const newStory = await generateStory(selectedLanguage, storyOptions);
+
+            // Save the newly generated story to the cache, overwriting any previous entry for these options.
             const cacheKey = createCacheKey(selectedLanguage.code, storyOptions);
-            const cachedItem = await getStoryFromCache(cacheKey);
-            let newStory: Story;
-
-            if (cachedItem) {
-                newStory = cachedItem.story;
-            } else {
-                newStory = await generateStory(selectedLanguage, storyOptions);
-                const itemToCache: CachedStoryItem = {
-                    story: newStory,
-                    language: selectedLanguage,
-                    options: storyOptions,
-                };
-                await saveStoryToCache(cacheKey, itemToCache);
-            }
-
+            const itemToCache: CachedStoryItem = {
+                story: newStory,
+                language: selectedLanguage,
+                options: storyOptions,
+            };
+            await saveStoryToCache(cacheKey, itemToCache);
+            
             setStory(newStory);
             await rehydrateAudio(newStory.audio);
 
