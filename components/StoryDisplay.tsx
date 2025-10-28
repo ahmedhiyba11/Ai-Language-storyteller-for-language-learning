@@ -8,6 +8,7 @@ interface StoryDisplayProps {
     currentSegmentIndex: number | null;
     languageName: string;
     isLoading: boolean;
+    isStoryContrast: boolean;
 }
 
 const StoryColumn: React.FC<{
@@ -19,12 +20,23 @@ const StoryColumn: React.FC<{
     currentSegmentIndex: number | null;
     placeholder: string;
     isLoading: boolean;
-}> = ({ title, titleId, segments, textExtractor, onSegmentClick, currentSegmentIndex, placeholder, isLoading }) => (
-    <div role="region" aria-labelledby={titleId} className="bg-slate-800 data-[theme='high-contrast']:bg-black data-[theme='high-contrast']:border data-[theme='high-contrast']:border-white p-6 rounded-xl shadow-lg flex-1 min-h-[200px]">
-        <h3 id={titleId} className="text-xl font-bold text-teal-400 data-[theme='high-contrast']:text-yellow-300 mb-4">{title}</h3>
+    isStoryContrast: boolean;
+}> = ({ title, titleId, segments, textExtractor, onSegmentClick, currentSegmentIndex, placeholder, isLoading, isStoryContrast }) => (
+    <div 
+        role="region" 
+        aria-labelledby={titleId} 
+        className="bg-slate-800 data-[theme='high-contrast']:bg-black data-[theme='high-contrast']:border data-[theme='high-contrast']:border-white p-6 rounded-xl shadow-lg flex-1 min-h-[200px] data-[story-contrast=true]:bg-slate-200 data-[story-contrast=true]:text-slate-900"
+        data-story-contrast={isStoryContrast}
+    >
+        <h3 
+            id={titleId} 
+            className="text-xl font-bold text-teal-400 data-[theme='high-contrast']:text-yellow-300 mb-4 data-[story-contrast=true]:text-teal-600"
+        >
+            {title}
+        </h3>
         {isLoading && !segments ? (
             <div className="space-y-4 animate-pulse">
-                {[...Array(4)].map((_, i) => <div key={i} className="h-4 bg-slate-700 data-[theme='high-contrast']:bg-gray-800 rounded w-full"></div>)}
+                {[...Array(4)].map((_, i) => <div key={i} className="h-4 bg-slate-700 data-[theme='high-contrast']:bg-gray-800 rounded w-full data-[story-contrast=true]:bg-slate-300"></div>)}
             </div>
         ) : segments && segments.length > 0 ? (
             <div className="space-y-1">
@@ -33,7 +45,9 @@ const StoryColumn: React.FC<{
                     const isInteractive = !!onSegmentClick;
                     const baseClasses = `p-2 rounded transition-colors duration-200 w-full text-left`;
                     const stateClasses = isInteractive
-                        ? `cursor-pointer ${currentSegmentIndex === index ? 'bg-teal-900/50 data-[theme=\'high-contrast\']:bg-yellow-300/30' : 'hover:bg-slate-700/50 data-[theme=\'high-contrast\']:hover:bg-gray-700'}`
+                        ? `cursor-pointer ${currentSegmentIndex === index 
+                            ? 'bg-teal-900/50 data-[theme=\'high-contrast\']:bg-yellow-300/30 data-[story-contrast=true]:bg-teal-200' 
+                            : 'hover:bg-slate-700/50 data-[theme=\'high-contrast\']:hover:bg-gray-700 data-[story-contrast=true]:hover:bg-slate-300/50'}`
                         : '';
 
                     if (isInteractive) {
@@ -56,13 +70,13 @@ const StoryColumn: React.FC<{
                 })}
             </div>
         ) : (
-            <p className="text-slate-400 italic">{placeholder}</p>
+            <p className="text-slate-400 italic data-[story-contrast=true]:text-slate-600">{placeholder}</p>
         )}
     </div>
 );
 
 
-export const StoryDisplay: React.FC<StoryDisplayProps> = ({ segments, onSelectionChange, onSegmentClick, currentSegmentIndex, languageName, isLoading }) => {
+export const StoryDisplay: React.FC<StoryDisplayProps> = ({ segments, onSelectionChange, onSegmentClick, currentSegmentIndex, languageName, isLoading, isStoryContrast }) => {
     return (
         <div className="flex flex-col md:flex-row gap-6" onMouseUp={onSelectionChange}>
             <StoryColumn
@@ -73,6 +87,7 @@ export const StoryDisplay: React.FC<StoryDisplayProps> = ({ segments, onSelectio
                 currentSegmentIndex={currentSegmentIndex}
                 placeholder="Your story's English translation will appear here..."
                 isLoading={isLoading}
+                isStoryContrast={isStoryContrast}
             />
             <StoryColumn
                 title={languageName}
@@ -83,6 +98,7 @@ export const StoryDisplay: React.FC<StoryDisplayProps> = ({ segments, onSelectio
                 currentSegmentIndex={currentSegmentIndex}
                 placeholder={`Your story in ${languageName} will appear here...`}
                 isLoading={isLoading}
+                isStoryContrast={isStoryContrast}
             />
         </div>
     );

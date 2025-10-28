@@ -1,4 +1,4 @@
-import { type Story } from '../types';
+import { type Story, type CachedStoryItem } from '../types';
 
 const DB_NAME = 'ai-story-cache';
 const DB_VERSION = 2; // Version bumped to update schema
@@ -38,14 +38,14 @@ function getDb(): Promise<IDBDatabase> {
 /**
  * Saves a generated story to the IndexedDB cache.
  * @param key A unique key identifying the story configuration.
- * @param story The story object to cache.
+ * @param item The complete cached story item to save.
  */
-export async function saveStoryToCache(key: string, story: Story): Promise<void> {
+export async function saveStoryToCache(key: string, item: CachedStoryItem): Promise<void> {
     try {
         const db = await getDb();
         const transaction = db.transaction(STORE_NAME, 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
-        store.put(story, key); // Use the explicit key
+        store.put(item, key); // Use the explicit key
     } catch (error) {
         console.error('Failed to save story to cache. The app will still function.', error);
     }
@@ -54,9 +54,9 @@ export async function saveStoryToCache(key: string, story: Story): Promise<void>
 /**
  * Retrieves a story from the IndexedDB cache for a given key.
  * @param key The unique key of the story to look up.
- * @returns The cached Story object, or null if not found or if an error occurs.
+ * @returns The cached CachedStoryItem object, or null if not found or if an error occurs.
  */
-export async function getStoryFromCache(key: string): Promise<Story | null> {
+export async function getStoryFromCache(key: string): Promise<CachedStoryItem | null> {
     try {
         const db = await getDb();
         return new Promise((resolve) => {
@@ -67,7 +67,7 @@ export async function getStoryFromCache(key: string): Promise<Story | null> {
             request.onsuccess = () => {
                 const result = request.result;
                 if (result) {
-                    resolve(result as Story);
+                    resolve(result as CachedStoryItem);
                 } else {
                     resolve(null);
                 }

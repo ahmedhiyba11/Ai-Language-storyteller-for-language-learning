@@ -1,43 +1,104 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useReducer } from 'react';
 import { LanguageSelector } from './components/LanguageSelector';
 import { StoryDisplay } from './components/StoryDisplay';
 import { VocabularyList } from './components/VocabularyList';
 import { AudioPlayer } from './components/AudioPlayer';
 import { AccessibilityControls } from './components/AccessibilityControls';
 import { StoryOptions } from './components/StoryOptions';
-import { generateStory, getWordDetails, textToSpeech } from './services/geminiService';
-import { decodeAudioData } from './utils/audioUtils';
+import { StoryHistory } from './components/StoryHistory';
+import { TabbedSidebar } from './components/TabbedSidebar';
+import { generateStory, getWordDetails, textToSpeech, comparePronunciation } from './services/geminiService';
+import { decodeAudioData, blobToBase64 } from './utils/audioUtils';
 import { getStoryFromCache, saveStoryToCache } from './utils/cache';
-import { type Story, type Language, type Word, type Theme, type StoryOptions as StoryOptionsType } from './types';
+import { type Story, type Language, type Word, type Theme, type StoryOptions as StoryOptionsType, type StoryHistoryItem, type CachedStoryItem } from './types';
 import { LANGUAGES, TONES, DIFFICULTIES, VOCAB_FOCUSES } from './constants';
+
+type AudioState = {
+  status: 'idle' | 'playing' | 'paused';
+  currentSegmentIndex: number | null;
+  isContinuous: boolean;
+};
+
+type AudioAction =
+  | { type: 'PLAY'; payload: { startIndex: number; isContinuous: boolean } }
+  | { type: 'PAUSE' }
+  | { type: 'STOP' }
+  | { type: 'SEGMENT_ENDED'; payload: { audioBuffersCount: number } };
+
+const initialAudioState: AudioState = {
+  status: 'idle',
+  currentSegmentIndex: null,
+  isContinuous: false,
+};
+
+function audioReducer(state: AudioState, action: AudioAction): AudioState {
+  switch (action.type) {
+    case 'PLAY':
+      return {
+        ...state,
+        status: 'playing',
+        currentSegmentIndex: action.payload.startIndex,
+        isContinuous: action.payload.isContinuous,
+      };
+    case 'PAUSE':
+      if (state.status === 'playing') {
+        return { ...state, status: 'paused' };
+      }
+      return state;
+    case 'STOP':
+      return initialAudioState;
+    case 'SEGMENT_ENDED':
+      if (
+        state.isContinuous &&
+        state.currentSegmentIndex !== null &&
+        state.currentSegmentIndex < action.payload.audioBuffersCount - 1
+      ) {
+        return {
+          ...state,
+          currentSegmentIndex: state.currentSegmentIndex + 1,
+        };
+      }
+      return initialAudioState; // End of story or not continuous play
+    default:
+      return state;
+  }
+}
 
 const App: React.FC = () => {
     const [selectedLanguage, setSelectedLanguage] = useState<Language>(LANGUAGES[0]);
     const [story, setStory] = useState<Story | null>(null);
     const [vocabulary, setVocabulary] = useState<Word[]>([]);
+    const [storyHistory, setStoryHistory] = useState<StoryHistoryItem[]>([]);
     const [selectedText, setSelectedText] = useState<string>('');
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [isSavingWord, setIsSavingWord] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
-    
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [currentSegmentIndex, setCurrentSegmentIndex] = useState<number | null>(null);
+    const [loadingWordAudioId, setLoadingWordAudioId] = useState<number | null>(null);
 
     const [theme, setTheme] = useState<Theme>('default');
     const [isDyslexiaFont, setIsDyslexiaFont] = useState<boolean>(false);
+    const [isStoryContrast, setIsStoryContrast] = useState<boolean>(false);
+    const [playbackRate, setPlaybackRate] = useState<number>(1.0);
 
     const [storyOptions, setStoryOptions] = useState<StoryOptionsType>({
         difficulty: 'A1',
         tone: 'childrens-story',
         vocabFocus: 'general',
+        length: 'short',
     });
 
+    const [audioState, dispatch] = useReducer(audioReducer, initialAudioState);
     const audioContextRef = useRef<AudioContext>();
     const audioBuffersRef = useRef<AudioBuffer[]>([]);
     const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
-    const isContinuousPlayRef = useRef(false);
     const wordAudioBuffersRef = useRef<Map<number, AudioBuffer>>(new Map());
-    
+
+    const [recordingState, setRecordingState] = useState<{ wordId: number | null; status: 'idle' | 'recording' | 'processing' }>({ wordId: null, status: 'idle' });
+    const [pronunciationFeedback, setPronunciationFeedback] = useState<{ wordId: number | null; message: string | null }>({ wordId: null, message: null });
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const recordedChunksRef = useRef<Blob[]>([]);
+    const wordAudioBase64Ref = useRef<Map<number, string>>(new Map());
+
     useEffect(() => {
         document.documentElement.setAttribute('data-theme', theme);
     }, [theme]);
@@ -49,11 +110,13 @@ const App: React.FC = () => {
     useEffect(() => {
         try {
             const savedVocabulary = localStorage.getItem('vocabulary');
-            if (savedVocabulary) {
-                setVocabulary(JSON.parse(savedVocabulary));
-            }
+            if (savedVocabulary) setVocabulary(JSON.parse(savedVocabulary));
+
+            const savedHistory = localStorage.getItem('storyHistory');
+            if (savedHistory) setStoryHistory(JSON.parse(savedHistory));
+
         } catch (e) {
-            console.error("Failed to load vocabulary from localStorage", e);
+            console.error("Failed to load data from localStorage", e);
         }
     }, []);
 
@@ -65,7 +128,16 @@ const App: React.FC = () => {
         }
     }, [vocabulary]);
 
-    const stopPlayback = useCallback((clearState = true) => {
+    useEffect(() => {
+        try {
+            localStorage.setItem('storyHistory', JSON.stringify(storyHistory));
+        } catch (e) {
+            console.error("Failed to save story history to localStorage", e);
+        }
+    }, [storyHistory]);
+
+
+    const stopAudio = useCallback(() => {
         if (sourceNodeRef.current) {
             sourceNodeRef.current.onended = null;
             try {
@@ -75,88 +147,122 @@ const App: React.FC = () => {
             }
             sourceNodeRef.current = null;
         }
-        if (clearState) {
-            setIsPlaying(false);
-            setCurrentSegmentIndex(null);
-            isContinuousPlayRef.current = false;
-        }
+        dispatch({ type: 'STOP' });
     }, []);
 
-    const playSegment = useCallback((index: number) => {
-        if (index >= audioBuffersRef.current.length) {
-            if (isContinuousPlayRef.current) {
-                stopPlayback();
+    useEffect(() => {
+        if (sourceNodeRef.current) {
+            sourceNodeRef.current.playbackRate.value = playbackRate;
+        }
+    }, [playbackRate]);
+    
+    useEffect(() => {
+        const playCurrentSegment = async () => {
+            if (audioState.status !== 'playing' || audioState.currentSegmentIndex === null) {
+                return;
             }
-            return;
-        }
-
-        stopPlayback(false); // Stop current playback without clearing state
-
-        const audioBuffer = audioBuffersRef.current[index];
-        if (!audioContextRef.current || !audioBuffer) {
-            if (isContinuousPlayRef.current) {
-                playSegment(index + 1);
+    
+            const index = audioState.currentSegmentIndex;
+            if (index >= audioBuffersRef.current.length) {
+                dispatch({ type: 'STOP' });
+                return;
             }
-            return;
-        }
-        
-        if (audioContextRef.current.state === 'suspended') {
-            audioContextRef.current.resume();
-        }
+    
+            // Stop any previous sound before playing the new one
+            if (sourceNodeRef.current) {
+                sourceNodeRef.current.onended = null;
+                try { sourceNodeRef.current.stop(); } catch(e) { /* ignore */ }
+            }
 
-        const source = audioContextRef.current.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(audioContextRef.current.destination);
-        
-        source.onended = () => {
-            if (sourceNodeRef.current !== source) return;
+            const audioBuffer = audioBuffersRef.current[index];
+            if (!audioContextRef.current || !audioBuffer) {
+                // If a buffer is missing, skip to the next segment in continuous play
+                if (audioState.isContinuous) {
+                    dispatch({ type: 'SEGMENT_ENDED', payload: { audioBuffersCount: audioBuffersRef.current.length } });
+                } else {
+                    dispatch({ type: 'STOP' });
+                }
+                return;
+            }
+    
+            // Robustly resume AudioContext if it's suspended
+            if (audioContextRef.current.state === 'suspended') {
+                try {
+                    await audioContextRef.current.resume();
+                } catch (err) {
+                    console.error("Failed to resume AudioContext:", err);
+                    setError("Could not play audio. Please interact with the page and try again.");
+                    dispatch({ type: 'STOP' });
+                    return;
+                }
+            }
+    
+            const source = audioContextRef.current.createBufferSource();
+            source.buffer = audioBuffer;
+            source.playbackRate.value = playbackRate;
+            source.connect(audioContextRef.current.destination);
             
-            if (isContinuousPlayRef.current) {
-                playSegment(index + 1);
-            } else {
-                stopPlayback();
+            source.onended = () => {
+                // Only dispatch if this is the currently active source
+                if (sourceNodeRef.current === source) {
+                    dispatch({ type: 'SEGMENT_ENDED', payload: { audioBuffersCount: audioBuffersRef.current.length } });
+                }
+            };
+            
+            source.start(0);
+            sourceNodeRef.current = source;
+        };
+    
+        playCurrentSegment();
+    
+        // Cleanup function to stop audio when the component unmounts or dependencies change
+        return () => {
+            if (sourceNodeRef.current) {
+                sourceNodeRef.current.onended = null;
             }
         };
-        
-        source.start(0);
-        sourceNodeRef.current = source;
-        setCurrentSegmentIndex(index);
-        setIsPlaying(true);
-
-    }, [stopPlayback]);
+    }, [audioState.status, audioState.currentSegmentIndex, audioState.isContinuous, playbackRate]);
 
     const createCacheKey = (languageCode: string, options: StoryOptionsType) => {
-        return `${languageCode}-${options.difficulty}-${options.tone}-${options.vocabFocus}`;
+        return `${languageCode}-${options.difficulty}-${options.tone}-${options.vocabFocus}-${options.length}`;
     };
+
+    const rehydrateAudio = useCallback(async (audioData: string[]) => {
+        if (!audioContextRef.current) {
+            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+        }
+        const buffers = await Promise.all(
+            audioData.map(data => data ? decodeAudioData(data, audioContextRef.current!) : Promise.resolve(null))
+        );
+        audioBuffersRef.current = buffers.filter(b => b !== null) as AudioBuffer[];
+    }, []);
 
     const handleGenerateStory = useCallback(async () => {
         setIsLoading(true);
         setError(null);
-        stopPlayback();
+        stopAudio();
         setStory(null);
         setSelectedText('');
 
         try {
             const cacheKey = createCacheKey(selectedLanguage.code, storyOptions);
-            const cachedStory = await getStoryFromCache(cacheKey);
+            const cachedItem = await getStoryFromCache(cacheKey);
             let newStory: Story;
 
-            if (cachedStory) {
-                newStory = cachedStory;
+            if (cachedItem) {
+                newStory = cachedItem.story;
             } else {
                 newStory = await generateStory(selectedLanguage, storyOptions);
-                await saveStoryToCache(cacheKey, newStory);
+                const itemToCache: CachedStoryItem = {
+                    story: newStory,
+                    language: selectedLanguage,
+                    options: storyOptions,
+                };
+                await saveStoryToCache(cacheKey, itemToCache);
             }
 
             setStory(newStory);
-
-            if (!audioContextRef.current) {
-                audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-            }
-            const buffers = await Promise.all(
-                newStory.audio.map(data => data ? decodeAudioData(data, audioContextRef.current!) : Promise.resolve(null))
-            );
-            audioBuffersRef.current = buffers.filter(b => b !== null) as AudioBuffer[];
+            await rehydrateAudio(newStory.audio);
 
         } catch (err) {
             console.error(err);
@@ -165,20 +271,31 @@ const App: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [selectedLanguage, stopPlayback, storyOptions]);
+    }, [selectedLanguage, stopAudio, storyOptions, rehydrateAudio]);
     
     const handlePlayPauseToggle = () => {
-        if (isPlaying) {
-            stopPlayback();
+        if (audioState.status === 'playing') {
+            if (sourceNodeRef.current) {
+                sourceNodeRef.current.onended = null;
+                try { sourceNodeRef.current.stop(); } catch(e) {}
+                sourceNodeRef.current = null;
+            }
+            dispatch({ type: 'PAUSE' });
         } else {
-            isContinuousPlayRef.current = true;
-            playSegment(currentSegmentIndex !== null ? currentSegmentIndex : 0);
+            // If idle or paused, start playing.
+            const startIndex = audioState.currentSegmentIndex !== null ? audioState.currentSegmentIndex : 0;
+            dispatch({ type: 'PLAY', payload: { startIndex, isContinuous: true } });
         }
     };
     
     const handleSegmentClick = (index: number) => {
-        isContinuousPlayRef.current = false;
-        playSegment(index);
+        // If the user clicks the currently playing segment, treat it as a pause.
+        if (audioState.status === 'playing' && audioState.currentSegmentIndex === index) {
+            handlePlayPauseToggle();
+        } else {
+            // Otherwise, play the single segment
+            dispatch({ type: 'PLAY', payload: { startIndex: index, isContinuous: false } });
+        }
     };
 
     const handleSelectionChange = () => {
@@ -215,8 +332,6 @@ const App: React.FC = () => {
             const details = await getWordDetails(selectedText, contextSentence, selectedLanguage.name);
     
             const difficultyTag = DIFFICULTIES.find(d => d.id === storyOptions.difficulty)?.label || storyOptions.difficulty;
-            const toneTag = TONES.find(t => t.id === storyOptions.tone)?.label || storyOptions.tone;
-            const vocabTag = VOCAB_FOCUSES.find(v => v.id === storyOptions.vocabFocus)?.label || storyOptions.vocabFocus;
 
             const newWord: Word = {
                 id: Date.now(),
@@ -225,7 +340,8 @@ const App: React.FC = () => {
                 contextSentence: contextSentence,
                 partOfSpeech: details.partOfSpeech,
                 ipa: details.ipa,
-                tags: [difficultyTag, toneTag, vocabTag].filter(tag => tag !== 'General'),
+                translation: details.translation,
+                tags: [difficultyTag, ...details.tags],
             };
     
             setVocabulary(prev => [newWord, ...prev]);
@@ -242,9 +358,12 @@ const App: React.FC = () => {
     const handleDeleteWord = (id: number) => {
         setVocabulary(prev => prev.filter(word => word.id !== id));
         wordAudioBuffersRef.current.delete(id);
+        wordAudioBase64Ref.current.delete(id);
     };
 
     const handlePlayWordAudio = async (word: Word) => {
+        setError(null);
+
         if (!audioContextRef.current) {
             audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
         }
@@ -257,35 +376,146 @@ const App: React.FC = () => {
             if (buffer) {
                 const source = audioContextRef.current.createBufferSource();
                 source.buffer = buffer;
+                source.playbackRate.value = playbackRate;
                 source.connect(audioContextRef.current.destination);
                 source.start(0);
             }
             return;
         }
     
+        setLoadingWordAudioId(word.id);
         try {
             const languageCodeForTTS = word.language.ttsCode || word.language.code;
-            const audioData = await textToSpeech(word.text, languageCodeForTTS);
-            if (audioData) {
-                const buffer = await decodeAudioData(audioData, audioContextRef.current);
-                if (buffer) {
-                    wordAudioBuffersRef.current.set(word.id, buffer);
-                    const source = audioContextRef.current.createBufferSource();
-                    source.buffer = buffer;
-                    source.connect(audioContextRef.current.destination);
-                    source.start(0);
-                }
+            const audioData = await textToSpeech(word.text, languageCodeForTTS, true);
+            wordAudioBase64Ref.current.set(word.id, audioData);
+            const buffer = await decodeAudioData(audioData, audioContextRef.current);
+            if (buffer) {
+                wordAudioBuffersRef.current.set(word.id, buffer);
+                const source = audioContextRef.current.createBufferSource();
+                source.buffer = buffer;
+                source.playbackRate.value = playbackRate;
+                source.connect(audioContextRef.current.destination);
+                source.start(0);
+            } else {
+                throw new Error("Failed to process the generated audio.");
             }
         } catch (err) {
             console.error("Failed to play word audio", err);
-            setError("Could not play audio for this word.");
+            setError(err instanceof Error ? err.message : "Could not play audio for this word.");
+        } finally {
+            setLoadingWordAudioId(null);
+        }
+    };
+
+    const handleRecordPronunciation = async (word: Word) => {
+        setError(null);
+        setPronunciationFeedback({ wordId: null, message: null });
+    
+        if (recordingState.status === 'recording' && recordingState.wordId === word.id) {
+            mediaRecorderRef.current?.stop();
+            return;
+        }
+    
+        if (recordingState.status !== 'idle') return;
+    
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+            recordedChunksRef.current = [];
+    
+            mediaRecorderRef.current.ondataavailable = (event) => {
+                if (event.data.size > 0) recordedChunksRef.current.push(event.data);
+            };
+    
+            mediaRecorderRef.current.onstop = async () => {
+                setRecordingState({ wordId: word.id, status: 'processing' });
+                try {
+                    const userAudioBlob = new Blob(recordedChunksRef.current, { type: 'audio/webm' });
+                    const userAudioBase64 = await blobToBase64(userAudioBlob);
+    
+                    let originalAudioBase64 = wordAudioBase64Ref.current.get(word.id);
+                    if (!originalAudioBase64) {
+                        const languageCodeForTTS = word.language.ttsCode || word.language.code;
+                        originalAudioBase64 = await textToSpeech(word.text, languageCodeForTTS, true);
+                        if (originalAudioBase64) {
+                            wordAudioBase64Ref.current.set(word.id, originalAudioBase64);
+                        } else {
+                            throw new Error("Could not generate reference audio for comparison.");
+                        }
+                    }
+                    
+                    const result = await comparePronunciation(userAudioBase64, originalAudioBase64, word.text, word.language.name);
+                    setPronunciationFeedback({ wordId: word.id, message: result.feedback });
+    
+                } catch (err) {
+                     setError(err instanceof Error ? err.message : "Failed to get pronunciation feedback.");
+                } finally {
+                    stream.getTracks().forEach(track => track.stop());
+                    setRecordingState({ wordId: null, status: 'idle' });
+                }
+            };
+    
+            mediaRecorderRef.current.start();
+            setRecordingState({ wordId: word.id, status: 'recording' });
+    
+        } catch (err) {
+            console.error("Error starting recording:", err);
+            setError("Microphone access was denied or an error occurred. Please enable microphone permissions in your browser settings.");
+            setRecordingState({ wordId: null, status: 'idle' });
+        }
+    };
+    
+    const handleClearPronunciationFeedback = (wordId: number) => {
+        if (pronunciationFeedback.wordId === wordId) {
+            setPronunciationFeedback({ wordId: null, message: null });
         }
     };
 
     const handleOptionsChange = (newOptions: StoryOptionsType) => {
-        stopPlayback();
+        stopAudio();
         setStory(null);
         setStoryOptions(newOptions);
+    };
+
+    const handleSaveStory = () => {
+        if (!story) return;
+    
+        const newHistoryItem: StoryHistoryItem = {
+            id: Date.now(),
+            story,
+            language: selectedLanguage,
+            options: storyOptions,
+            title: story.segments[0].english,
+        };
+    
+        if (storyHistory.length > 0 && storyHistory[0].title === newHistoryItem.title && storyHistory[0].language.code === newHistoryItem.language.code) {
+            return;
+        }
+    
+        setStoryHistory(prev => [newHistoryItem, ...prev]);
+    };
+
+    const handleLoadStoryFromHistory = useCallback(async (item: StoryHistoryItem) => {
+        stopAudio();
+        setError(null);
+        setSelectedText('');
+        setIsLoading(true);
+    
+        setStory(item.story);
+        setSelectedLanguage(item.language);
+        setStoryOptions(item.options);
+    
+        await rehydrateAudio(item.story.audio);
+    
+        setIsLoading(false);
+    }, [stopAudio, rehydrateAudio]);
+    
+    const handleDeleteStoryFromHistory = (id: number) => {
+        setStoryHistory(prev => prev.filter(item => item.id !== id));
+    };
+
+    const handleClearStoryHistory = () => {
+        setStoryHistory([]);
     };
 
     return (
@@ -296,7 +526,14 @@ const App: React.FC = () => {
                         <i className="fas fa-book-open-reader mr-3"></i>AI Language Storyteller
                     </h1>
                     <p className="text-slate-400 data-[theme='high-contrast']:text-slate-200 mt-2 text-lg">Your personal AI-powered language learning companion</p>
-                    <AccessibilityControls theme={theme} setTheme={setTheme} isDyslexiaFont={isDyslexiaFont} setIsDyslexiaFont={setIsDyslexiaFont} />
+                    <AccessibilityControls 
+                        theme={theme} 
+                        setTheme={setTheme} 
+                        isDyslexiaFont={isDyslexiaFont} 
+                        setIsDyslexiaFont={setIsDyslexiaFont}
+                        isStoryContrast={isStoryContrast}
+                        setIsStoryContrast={setIsStoryContrast}
+                    />
                 </header>
 
                 <div className="bg-slate-800 data-[theme='high-contrast']:bg-black data-[theme='high-contrast']:border data-[theme='high-contrast']:border-white p-6 rounded-xl shadow-2xl mb-8">
@@ -305,7 +542,7 @@ const App: React.FC = () => {
                             languages={LANGUAGES}
                             selectedLanguage={selectedLanguage}
                             onChange={(lang) => {
-                                stopPlayback();
+                                stopAudio();
                                 setStory(null);
                                 setSelectedLanguage(lang);
                             }}
@@ -340,7 +577,7 @@ const App: React.FC = () => {
                         {isLoading && "Generating new story, please wait."}
                         {error && `An error occurred: ${error}`}
                     </div>
-                    {error && <p className="text-red-400 data-[theme='high-contrast']:text-red-400 text-center mt-4">Error: {error}</p>}
+                    {error && <p className="text-red-400 data-[theme='high-contrast']:text-red-400 text-center mt-4" role="alert">Error: {error}</p>}
                 </div>
                 
                 <main role="main" className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -350,18 +587,30 @@ const App: React.FC = () => {
                             onSelectionChange={handleSelectionChange} 
                             languageName={selectedLanguage.name} 
                             isLoading={isLoading}
-                            currentSegmentIndex={currentSegmentIndex}
+                            currentSegmentIndex={audioState.currentSegmentIndex}
                             onSegmentClick={handleSegmentClick}
+                            isStoryContrast={isStoryContrast}
                          />
-                         <div className="mt-6 flex flex-col sm:flex-row items-center gap-4">
+                         <div className="mt-6 flex flex-col sm:flex-row items-center gap-4 flex-wrap">
                             {story && (
                                 <AudioPlayer 
-                                    isPlaying={isPlaying} 
+                                    isPlaying={audioState.status === 'playing'}
                                     isDisabled={isLoading || !story} 
                                     onPlayPause={handlePlayPauseToggle} 
                                     story={story}
-                                    currentSegmentIndex={currentSegmentIndex}
+                                    currentSegmentIndex={audioState.currentSegmentIndex}
+                                    playbackRate={playbackRate}
+                                    onPlaybackRateChange={setPlaybackRate}
                                 />
+                            )}
+                             {story && !isLoading && (
+                                <button
+                                    onClick={handleSaveStory}
+                                    className="w-full sm:w-auto bg-teal-700 hover:bg-teal-800 data-[theme='high-contrast']:bg-yellow-600 data-[theme='high-contrast']:hover:bg-yellow-700 data-[theme='high-contrast']:text-black text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition duration-200"
+                                    title="Save story to your history"
+                                >
+                                    <i className="fas fa-save"></i> Save Story
+                                </button>
                             )}
                             {selectedText && (
                                 <button
@@ -387,10 +636,31 @@ const App: React.FC = () => {
                         </div>
                     </div>
                     <div className="lg:col-span-1">
-                        <VocabularyList 
-                            vocabulary={vocabulary} 
-                            onDeleteWord={handleDeleteWord}
-                            onPlayWordAudio={handlePlayWordAudio}
+                        <TabbedSidebar
+                            tabs={{
+                                'Vocabulary': {
+                                    icon: 'fas fa-clipboard-list',
+                                    content: <VocabularyList 
+                                        vocabulary={vocabulary} 
+                                        onDeleteWord={handleDeleteWord}
+                                        onPlayWordAudio={handlePlayWordAudio}
+                                        loadingWordAudioId={loadingWordAudioId}
+                                        onRecordPronunciation={handleRecordPronunciation}
+                                        recordingState={recordingState}
+                                        pronunciationFeedback={pronunciationFeedback}
+                                        onClearPronunciationFeedback={handleClearPronunciationFeedback}
+                                    />
+                                },
+                                'History': {
+                                    icon: 'fas fa-history',
+                                    content: <StoryHistory 
+                                        history={storyHistory}
+                                        onLoadStory={handleLoadStoryFromHistory}
+                                        onDeleteStory={handleDeleteStoryFromHistory}
+                                        onClearHistory={handleClearStoryHistory}
+                                    />
+                                }
+                            }}
                         />
                     </div>
                 </main>

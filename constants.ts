@@ -1,4 +1,4 @@
-import { type Language, type Difficulty, type Tone, type VocabFocus } from './types';
+import { type Language, type Difficulty, type Tone, type VocabFocus, type StoryLength } from './types';
 
 export const LANGUAGES: Language[] = [
     { name: 'Italian', code: 'it' },
@@ -31,4 +31,10 @@ export const VOCAB_FOCUSES: { id: VocabFocus; label: string }[] = [
     { id: 'food', label: 'Food' },
     { id: 'work', label: 'Work' },
     { id: 'verbs', label: 'Verbs' },
+];
+
+export const STORY_LENGTHS: { id: StoryLength; label: string }[] = [
+    { id: 'short', label: 'Short (4 Sentences)' },
+    { id: 'medium', label: 'Medium (6 Sentences)' },
+    { id: 'long', label: 'Long (8 Sentences)' },
 ];

@@ -22,6 +22,7 @@ export interface Word {
     contextSentence: string;
     partOfSpeech: string;
     ipa: string;
+    translation?: string; // English translation of the word
     tags: string[];
 }
 
@@ -35,8 +36,25 @@ export type Tone = 'childrens-story' | 'daily-conversation' | 'news-style' | 'fa
 
 export type VocabFocus = 'general' | 'travel' | 'food' | 'work' | 'verbs';
 
+export type StoryLength = 'short' | 'medium' | 'long';
+
 export interface StoryOptions {
     difficulty: Difficulty;
     tone: Tone;
     vocabFocus: VocabFocus;
+    length: StoryLength;
+}
+
+export interface CachedStoryItem {
+    story: Story;
+    language: Language;
+    options: StoryOptions;
+}
+
+export interface StoryHistoryItem {
+    id: number;
+    story: Story;
+    language: Language;
+    options: StoryOptions;
+    title: string;
 }

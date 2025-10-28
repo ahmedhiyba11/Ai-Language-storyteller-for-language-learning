@@ -1,0 +1,21 @@
+{
+  "name": "AI Language Storyteller",
+  "short_name": "Storyteller",
+  "description": "Learn new languages by listening to AI-generated stories. Read along with dual-language transcripts, listen to native-like audio, and build your own vocabulary clipboard.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#2dd4bf",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}

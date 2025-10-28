@@ -1,7 +1,7 @@
 import React from 'react';
 // FIX: Rename imported type `StoryOptions` to `StoryOptionsType` to avoid conflict with the component name.
-import { type StoryOptions as StoryOptionsType, type Difficulty, type Tone, type VocabFocus } from '../types';
-import { DIFFICULTIES, TONES, VOCAB_FOCUSES } from '../constants';
+import { type StoryOptions as StoryOptionsType, type Difficulty, type Tone, type VocabFocus, type StoryLength } from '../types';
+import { DIFFICULTIES, TONES, VOCAB_FOCUSES, STORY_LENGTHS } from '../constants';
 
 interface StoryOptionsProps {
     options: StoryOptionsType;
@@ -46,7 +46,7 @@ export const StoryOptions: React.FC<StoryOptionsProps> = ({ options, onOptionsCh
     return (
         <div className="mt-4 p-4 bg-slate-800/50 data-[theme='high-contrast']:bg-black data-[theme='high-contrast']:border data-[theme='high-contrast']:border-gray-700 rounded-lg">
             <h3 className="text-lg font-semibold text-slate-200 data-[theme='high-contrast']:text-slate-100 mb-3 text-center sm:text-left">Story Personalization</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <Selector
                     id="difficulty-select"
                     label="Difficulty Level"
@@ -69,6 +69,14 @@ export const StoryOptions: React.FC<StoryOptionsProps> = ({ options, onOptionsCh
                     value={options.vocabFocus}
                     onChange={(e) => handleOptionChange('vocabFocus', e.target.value as VocabFocus)}
                     options={VOCAB_FOCUSES}
+                    disabled={disabled}
+                />
+                 <Selector
+                    id="length-select"
+                    label="Story Length"
+                    value={options.length}
+                    onChange={(e) => handleOptionChange('length', e.target.value as StoryLength)}
+                    options={STORY_LENGTHS}
                     disabled={disabled}
                 />
             </div>

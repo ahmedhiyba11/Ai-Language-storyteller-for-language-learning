@@ -6,9 +6,11 @@ interface AccessibilityControlsProps {
     setTheme: (theme: Theme) => void;
     isDyslexiaFont: boolean;
     setIsDyslexiaFont: (isDyslexiaFont: boolean) => void;
+    isStoryContrast: boolean;
+    setIsStoryContrast: (isStoryContrast: boolean) => void;
 }
 
-export const AccessibilityControls: React.FC<AccessibilityControlsProps> = ({ theme, setTheme, isDyslexiaFont, setIsDyslexiaFont }) => {
+export const AccessibilityControls: React.FC<AccessibilityControlsProps> = ({ theme, setTheme, isDyslexiaFont, setIsDyslexiaFont, isStoryContrast, setIsStoryContrast }) => {
     
     const toggleTheme = () => {
         setTheme(theme === 'default' ? 'high-contrast' : 'default');
@@ -16,6 +18,10 @@ export const AccessibilityControls: React.FC<AccessibilityControlsProps> = ({ th
 
     const toggleFont = () => {
         setIsDyslexiaFont(!isDyslexiaFont);
+    };
+
+    const toggleStoryContrast = () => {
+        setIsStoryContrast(!isStoryContrast);
     };
 
     const baseButtonClass = "flex items-center gap-2 p-2 rounded-lg border-2 transition-colors duration-200";
@@ -41,6 +47,15 @@ export const AccessibilityControls: React.FC<AccessibilityControlsProps> = ({ th
             >
                 <i className="fas fa-font" aria-hidden="true"></i>
                  <span className="hidden sm:inline">Font</span>
+            </button>
+            <button
+                onClick={toggleStoryContrast}
+                aria-pressed={isStoryContrast}
+                title="Toggle Story Contrast"
+                className={`${baseButtonClass} ${highContrastButtonClass} ${isStoryContrast ? activeHighContrastButtonClass : ''}`}
+            >
+                <i className="fas fa-circle-half-stroke" aria-hidden="true"></i>
+                <span className="hidden sm:inline">Story</span>
             </button>
         </div>
     );
