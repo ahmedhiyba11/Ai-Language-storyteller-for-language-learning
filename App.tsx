@@ -7,6 +7,7 @@ import { AccessibilityControls } from './components/AccessibilityControls';
 import { StoryOptions } from './components/StoryOptions';
 import { StoryHistory } from './components/StoryHistory';
 import { TabbedSidebar } from './components/TabbedSidebar';
+import { RadioPlayer } from './components/RadioPlayer';
 import { generateStory, getWordDetails, textToSpeech, comparePronunciation } from './services/geminiService';
 import { decodeAudioData, blobToBase64 } from './utils/audioUtils';
 import { getStoryFromCache, saveStoryToCache } from './utils/cache';
@@ -85,6 +86,7 @@ const App: React.FC = () => {
         tone: 'childrens-story',
         vocabFocus: 'general',
         length: 'short',
+        isComplexMode: false,
     });
 
     const [audioState, dispatch] = useReducer(audioReducer, initialAudioState);
@@ -224,7 +226,7 @@ const App: React.FC = () => {
     }, [audioState.status, audioState.currentSegmentIndex, audioState.isContinuous, playbackRate]);
 
     const createCacheKey = (languageCode: string, options: StoryOptionsType) => {
-        return `${languageCode}-${options.difficulty}-${options.tone}-${options.vocabFocus}-${options.length}`;
+        return `${languageCode}-${options.difficulty}-${options.tone}-${options.vocabFocus}-${options.length}-${options.isComplexMode}`;
     };
 
     const rehydrateAudio = useCallback(async (audioData: string[]) => {
@@ -659,6 +661,10 @@ const App: React.FC = () => {
                                         onDeleteStory={handleDeleteStoryFromHistory}
                                         onClearHistory={handleClearStoryHistory}
                                     />
+                                },
+                                'Radio': {
+                                    icon: 'fas fa-broadcast-tower',
+                                    content: <RadioPlayer language={selectedLanguage} />
                                 }
                             }}
                         />

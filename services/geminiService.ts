@@ -157,7 +157,7 @@ Respond with a JSON object.`;
 
 
 export async function generateStory(language: Language, options: StoryOptions): Promise<Story> {
-    const { difficulty, tone, vocabFocus, length } = options;
+    const { difficulty, tone, vocabFocus, length, isComplexMode } = options;
 
     const toneMap = {
         'childrens-story': "a children's story",
@@ -221,15 +221,28 @@ Provide the output as a JSON array of objects. Each object represents a sentence
 Now, generate a new, different story following all these rules for the language: ${language.name}.
 `;
 
+    const modelName = isComplexMode ? "gemini-2.5-pro" : "gemini-2.5-flash";
+    const modelConfig: {
+        responseMimeType: "application/json";
+        responseSchema: typeof storySchema;
+        temperature: number;
+        thinkingConfig?: { thinkingBudget: number };
+    } = {
+        responseMimeType: "application/json",
+        responseSchema: storySchema,
+        temperature: 0.8,
+    };
+
+    if (isComplexMode) {
+        modelConfig.thinkingConfig = { thinkingBudget: 32768 };
+    }
+
+
     try {
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: modelName,
             contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: storySchema,
-                temperature: 0.8,
-            },
+            config: modelConfig,
         });
 
         const jsonText = response.text.trim();

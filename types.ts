@@ -3,6 +3,8 @@ export interface Language {
     name: string;
     code: string;
     ttsCode?: string;
+    radioName?: string;
+    radioUrls?: string[];
 }
 
 export interface StorySegment {
@@ -43,6 +45,7 @@ export interface StoryOptions {
     tone: Tone;
     vocabFocus: VocabFocus;
     length: StoryLength;
+    isComplexMode: boolean;
 }
 
 export interface CachedStoryItem {

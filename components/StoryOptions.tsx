@@ -39,7 +39,7 @@ const Selector: React.FC<{
 );
 
 export const StoryOptions: React.FC<StoryOptionsProps> = ({ options, onOptionsChange, disabled }) => {
-    const handleOptionChange = (field: keyof StoryOptionsType, value: string) => {
+    const handleOptionChange = (field: keyof StoryOptionsType, value: string | boolean) => {
         onOptionsChange({ ...options, [field]: value });
     };
 
@@ -79,6 +79,36 @@ export const StoryOptions: React.FC<StoryOptionsProps> = ({ options, onOptionsCh
                     options={STORY_LENGTHS}
                     disabled={disabled}
                 />
+            </div>
+             <div className="mt-4 pt-4 border-t border-slate-700/50 data-[theme='high-contrast']:border-gray-600 flex items-center justify-center gap-3">
+                <label htmlFor="complex-mode-toggle" className="text-md font-medium text-slate-200 data-[theme='high-contrast']:text-slate-100">
+                    Enhanced Creativity
+                </label>
+                <button
+                    type="button"
+                    role="switch"
+                    aria-checked={options.isComplexMode}
+                    id="complex-mode-toggle"
+                    onClick={() => handleOptionChange('isComplexMode', !options.isComplexMode)}
+                    disabled={disabled}
+                    className={`${
+                        options.isComplexMode ? 'bg-teal-500 data-[theme=\'high-contrast\']:bg-yellow-400' : 'bg-slate-600 data-[theme=\'high-contrast\']:bg-gray-600'
+                    } relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 focus:ring-offset-slate-800 disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                    <span
+                        aria-hidden="true"
+                        className={`${
+                            options.isComplexMode ? 'translate-x-5' : 'translate-x-0'
+                        } pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out`}
+                    />
+                </button>
+                <div className="relative group flex items-center">
+                    <i className="fas fa-info-circle text-slate-400 cursor-help"></i>
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-10">
+                        Uses a more advanced model for higher quality and complex stories. Generation may take longer.
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-x-8 border-x-transparent border-t-8 border-t-slate-900"></div>
+                    </div>
+                </div>
             </div>
         </div>
     );
