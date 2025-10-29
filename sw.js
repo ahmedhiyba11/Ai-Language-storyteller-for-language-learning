@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ai-language-storyteller-v1';
+const CACHE_NAME = 'glotai-v1';
 const urlsToCache = [
   './',
   './index.html',

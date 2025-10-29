@@ -14,6 +14,8 @@ import { getStoryFromCache, saveStoryToCache } from './utils/cache';
 import { type Story, type Language, type Word, type Theme, type StoryOptions as StoryOptionsType, type StoryHistoryItem, type CachedStoryItem } from './types';
 import { LANGUAGES, TONES, DIFFICULTIES, VOCAB_FOCUSES } from './constants';
 
+const logoBase64 = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjMwIiBoZWlnaHQ9IjUwIiB2aWV3Qm94PSIwIDAgMjMwIDUwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxkZWZzPjxsaW5lYXJHcmFkaWVudCBpZD0iZ3JhZDEiIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMTAwJSIgeTI9IjAlIj48c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjNjdlOGY5IiAvPjxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzJkZDRiZiIgLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMzUiIGZvbnQtd2VpZ2h0PSJib2xkIiBmaWxsPSIjZjhmYWZjIj5HbG90PHRzcGFuIGZpbGw9InVybCgjZ3JhZDEpIj5BSTwvdHNwYW4+PC90ZXh0Pjwvc3ZnPg==';
+
 type AudioState = {
   status: 'idle' | 'playing' | 'paused';
   currentSegmentIndex: number | null;
@@ -138,6 +140,12 @@ const App: React.FC = () => {
         }
     }, [storyHistory]);
 
+    const getAudioContext = useCallback((): AudioContext => {
+        if (!audioContextRef.current) {
+            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+        }
+        return audioContextRef.current;
+    }, []);
 
     const stopAudio = useCallback(() => {
         if (sourceNodeRef.current) {
@@ -175,9 +183,11 @@ const App: React.FC = () => {
                 sourceNodeRef.current.onended = null;
                 try { sourceNodeRef.current.stop(); } catch(e) { /* ignore */ }
             }
-
+            
+            const audioContext = getAudioContext();
             const audioBuffer = audioBuffersRef.current[index];
-            if (!audioContextRef.current || !audioBuffer) {
+
+            if (!audioBuffer) {
                 // If a buffer is missing, skip to the next segment in continuous play
                 if (audioState.isContinuous) {
                     dispatch({ type: 'SEGMENT_ENDED', payload: { audioBuffersCount: audioBuffersRef.current.length } });
@@ -188,9 +198,9 @@ const App: React.FC = () => {
             }
     
             // Robustly resume AudioContext if it's suspended
-            if (audioContextRef.current.state === 'suspended') {
+            if (audioContext.state === 'suspended') {
                 try {
-                    await audioContextRef.current.resume();
+                    await audioContext.resume();
                 } catch (err) {
                     console.error("Failed to resume AudioContext:", err);
                     setError("Could not play audio. Please interact with the page and try again.");
@@ -199,10 +209,10 @@ const App: React.FC = () => {
                 }
             }
     
-            const source = audioContextRef.current.createBufferSource();
+            const source = audioContext.createBufferSource();
             source.buffer = audioBuffer;
             source.playbackRate.value = playbackRate;
-            source.connect(audioContextRef.current.destination);
+            source.connect(audioContext.destination);
             
             source.onended = () => {
                 // Only dispatch if this is the currently active source
@@ -223,21 +233,19 @@ const App: React.FC = () => {
                 sourceNodeRef.current.onended = null;
             }
         };
-    }, [audioState.status, audioState.currentSegmentIndex, audioState.isContinuous, playbackRate]);
+    }, [audioState.status, audioState.currentSegmentIndex, audioState.isContinuous, playbackRate, getAudioContext]);
 
     const createCacheKey = (languageCode: string, options: StoryOptionsType) => {
         return `${languageCode}-${options.difficulty}-${options.tone}-${options.vocabFocus}-${options.length}-${options.isComplexMode}`;
     };
 
     const rehydrateAudio = useCallback(async (audioData: string[]) => {
-        if (!audioContextRef.current) {
-            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-        }
+        const audioContext = getAudioContext();
         const buffers = await Promise.all(
-            audioData.map(data => data ? decodeAudioData(data, audioContextRef.current!) : Promise.resolve(null))
+            audioData.map(data => data ? decodeAudioData(data, audioContext) : Promise.resolve(null))
         );
         audioBuffersRef.current = buffers.filter(b => b !== null) as AudioBuffer[];
-    }, []);
+    }, [getAudioContext]);
 
     const handleGenerateStory = useCallback(async () => {
         setIsLoading(true);
@@ -363,20 +371,18 @@ const App: React.FC = () => {
     const handlePlayWordAudio = async (word: Word) => {
         setError(null);
 
-        if (!audioContextRef.current) {
-            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-        }
-        if (audioContextRef.current.state === 'suspended') {
-            await audioContextRef.current.resume();
+        const audioContext = getAudioContext();
+        if (audioContext.state === 'suspended') {
+            await audioContext.resume();
         }
     
         if (wordAudioBuffersRef.current.has(word.id)) {
             const buffer = wordAudioBuffersRef.current.get(word.id);
             if (buffer) {
-                const source = audioContextRef.current.createBufferSource();
+                const source = audioContext.createBufferSource();
                 source.buffer = buffer;
                 source.playbackRate.value = playbackRate;
-                source.connect(audioContextRef.current.destination);
+                source.connect(audioContext.destination);
                 source.start(0);
             }
             return;
@@ -385,15 +391,15 @@ const App: React.FC = () => {
         setLoadingWordAudioId(word.id);
         try {
             const languageCodeForTTS = word.language.ttsCode || word.language.code;
-            const audioData = await textToSpeech(word.text, languageCodeForTTS, true);
+            const audioData = await textToSpeech(word.text, languageCodeForTTS);
             wordAudioBase64Ref.current.set(word.id, audioData);
-            const buffer = await decodeAudioData(audioData, audioContextRef.current);
+            const buffer = await decodeAudioData(audioData, audioContext);
             if (buffer) {
                 wordAudioBuffersRef.current.set(word.id, buffer);
-                const source = audioContextRef.current.createBufferSource();
+                const source = audioContext.createBufferSource();
                 source.buffer = buffer;
                 source.playbackRate.value = playbackRate;
-                source.connect(audioContextRef.current.destination);
+                source.connect(audioContext.destination);
                 source.start(0);
             } else {
                 throw new Error("Failed to process the generated audio.");
@@ -435,12 +441,8 @@ const App: React.FC = () => {
                     let originalAudioBase64 = wordAudioBase64Ref.current.get(word.id);
                     if (!originalAudioBase64) {
                         const languageCodeForTTS = word.language.ttsCode || word.language.code;
-                        originalAudioBase64 = await textToSpeech(word.text, languageCodeForTTS, true);
-                        if (originalAudioBase64) {
-                            wordAudioBase64Ref.current.set(word.id, originalAudioBase64);
-                        } else {
-                            throw new Error("Could not generate reference audio for comparison.");
-                        }
+                        originalAudioBase64 = await textToSpeech(word.text, languageCodeForTTS);
+                        wordAudioBase64Ref.current.set(word.id, originalAudioBase64);
                     }
                     
                     const result = await comparePronunciation(userAudioBase64, originalAudioBase64, word.text, word.language.name);
@@ -521,10 +523,8 @@ const App: React.FC = () => {
         <div className="min-h-screen bg-slate-900 text-slate-200 data-[theme='high-contrast']:bg-black data-[theme='high-contrast']:text-white font-sans p-4 sm:p-6 lg:p-8">
             <div className="max-w-7xl mx-auto">
                  <header className="text-center mb-8 relative">
-                    <h1 className="text-4xl sm:text-5xl font-bold text-teal-400 data-[theme='high-contrast']:text-yellow-300">
-                        <i className="fas fa-book-open-reader mr-3"></i>AI Language Storyteller
-                    </h1>
-                    <p className="text-slate-400 data-[theme='high-contrast']:text-slate-200 mt-2 text-lg">Your personal AI-powered language learning companion</p>
+                    <img src={logoBase64} alt="GlotAI Logo" className="h-12 sm:h-16 w-auto mx-auto mb-4" />
+                    <p className="text-slate-400 data-[theme='high-contrast']:text-slate-200 text-lg">Your personal AI-powered language learning companion</p>
                     <AccessibilityControls 
                         theme={theme} 
                         setTheme={setTheme} 

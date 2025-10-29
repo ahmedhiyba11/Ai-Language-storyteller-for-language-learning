@@ -1,6 +1,6 @@
 {
-  "name": "AI Language Storyteller",
-  "description": "Learn new languages by listening to AI-generated stories. Read along with dual-language transcripts, listen to native-like audio, and build your own vocabulary clipboard.",
+  "name": "GlotAI",
+  "description": "Learn new languages with GlotAI by listening to AI-generated stories. Read along with dual-language transcripts, listen to native-like audio, and build your own vocabulary clipboard.",
   "requestFramePermissions": [
     "microphone"
   ]

@@ -1,7 +1,7 @@
 {
-  "name": "AI Language Storyteller",
-  "short_name": "Storyteller",
-  "description": "Learn new languages by listening to AI-generated stories. Read along with dual-language transcripts, listen to native-like audio, and build your own vocabulary clipboard.",
+  "name": "GlotAI",
+  "short_name": "GlotAI",
+  "description": "Learn new languages with GlotAI by listening to AI-generated stories. Read along with dual-language transcripts, listen to native-like audio, and build your own vocabulary clipboard.",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#0f172a",

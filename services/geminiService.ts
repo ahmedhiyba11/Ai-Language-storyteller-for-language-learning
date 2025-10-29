@@ -56,7 +56,7 @@ const pronunciationFeedbackSchema = {
 };
 
 
-export async function textToSpeech(text: string, languageCode: string, throwOnError: boolean = false): Promise<string> {
+export async function textToSpeech(text: string, languageCode: string): Promise<string> {
     try {
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
@@ -73,20 +73,13 @@ export async function textToSpeech(text: string, languageCode: string, throwOnEr
 
         const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
         if (!base64Audio) {
-            const warningMsg = `No audio data received from API for segment: "${text}"`;
-            console.warn(warningMsg);
-            if (throwOnError) {
-                throw new Error("The AI did not return audio for this item.");
-            }
-            return "";
+            throw new Error(`The AI did not return audio for the text: "${text}"`);
         }
         return base64Audio;
     } catch (error) {
         console.error(`Error with Text-to-Speech for text "${text}":`, error);
-        if (throwOnError) {
-            throw new Error("Failed to generate audio due to a network or API issue.");
-        }
-        return "";
+        // Re-throw a more user-friendly error to be caught by the calling function
+        throw new Error(`Failed to generate audio for a part of the story.`);
     }
 }
 
@@ -253,28 +246,17 @@ Now, generate a new, different story following all these rules for the language:
         }
 
         const languageCodeForTTS = language.ttsCode || language.code;
-        const audioPromises = segments.map(segment => textToSpeech(segment.translated, languageCodeForTTS));
-        const audio = await Promise.all(audioPromises);
+        // This will now throw an error if any segment fails, which is caught below.
+        const audio = await Promise.all(
+            segments.map(segment => textToSpeech(segment.translated, languageCodeForTTS))
+        );
         
-        const validSegments: StorySegment[] = [];
-        const validAudio: string[] = [];
-        audio.forEach((audioData, index) => {
-            if (audioData) {
-                validSegments.push(segments[index]);
-                validAudio.push(audioData);
-            }
-        });
-
-        if (validSegments.length === 0) {
-            throw new Error("The AI generated a story, but failed to create audio for it. Please try again.");
-        }
-        
-        return { segments: validSegments, audio: validAudio };
+        return { segments, audio };
 
     } catch (error) {
         console.error("Error generating story:", error);
-        if (error instanceof Error && (error.message.includes("audio for it") || error.message.includes("invalid story"))) {
-            throw error;
+        if (error instanceof Error && error.message.includes("Failed to generate audio")) {
+            throw new Error("The AI generated text, but failed to create audio for it. Please try again.");
         }
         if (error instanceof SyntaxError) {
              throw new Error("The AI returned an unexpected story format. Please try generating again.");
